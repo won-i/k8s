@@ -1,0 +1,43 @@
+{
+    "algorithm":"or",
+    "rules":[
+        {
+            "disabled":false,
+            "action":"retain",
+            "scope_selectors":{
+                "repository":[
+                    {
+                        "kind":"doublestar",
+                        "decoration":"repoMatches",
+                        "pattern":"**"
+                    }
+                ]
+            },
+            "tag_selectors":[
+                {
+                    "kind":"doublestar",
+                    "decoration":"matches",
+                    "pattern":"**",
+                    "extras":"{\"untagged\":true}"
+                }
+            ],
+            "params":{
+                "latestPushedK":5
+            },
+            "template":"latestPushedK"
+        }
+    ],
+    "trigger":{
+        "kind":"Schedule",
+        "references":{
+
+        },
+        "settings":{
+            "cron":"0 0 0 * * *"
+        }
+    },
+    "scope":{
+        "level":"project",
+        "ref": PROJECT_ID
+    }
+}
