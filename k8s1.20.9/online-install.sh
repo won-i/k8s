@@ -6,8 +6,13 @@ current_ip=$(hostname -I|awk '{print $1}')
 harbor_pass=Fqs@15792
 registry=ajsh-pro
 virtual_ip=10.4.7.55
-apimaster=${current_ip}
-apistanby=10.4.7.42
+api01=${current_ip}
+api02=10.4.7.42
+api03=10.4.7.43
+
+sed -i "s#APISERVER01#${api01}#g" join-master.sh
+sed -i "s#APISERVER02#${api02}#g" join-master.sh
+sed -i "s#APISERVER03#${api03}#g" join-master.sh
 
 init_os(){
 	# 添加yum源，安装基础组件
@@ -69,6 +74,7 @@ EOF
 
 install_harbor(){
 	# 安装harbor2.0
+	sed -i "s#HARBORADDR#${current_ip}#g" join-master.sh
 	cd /data/res/
 	wget 36.134.8.95:8001/harbor2.0.tar.gz
 	tar -xf harbor2.0.tar.gz
@@ -101,12 +107,14 @@ install_harbor(){
 install_keepalived(){
 	yum -y install keepalived net-tools
 	rm -rf /etc/keepalived.conf
-	chmod +x check.sh
-	cp check.sh /etc/keepalived/
+	chmod +x  ~/install/check.sh
+	cp  ~/install/check.sh /etc/keepalived/
 	interface=$(ifconfig |grep -B 1  ${current_ip} |head -n 1|awk -F : '{print $1}')
-	sed -i "s#INTERFACE_NAME#${interface}#g" ~/install/keepalived-master.conf
-	sed -i "s#CURRENT_IP#${current_ip}#g" ~/install/keepalived-master.conf
-	sed -i "s#VIRTUAL_IP#${virtual_ip}#g" ~/install/keepalived-master.conf
+	sed -i "s#INTERFACE_NAME#${interface}#g" ~/install/keepalived*.conf
+	sed -i "s#CURRENT_IP#${api01}#g" ~/install/keepalived-master.conf
+	sed -i "s#CURRENT_IP#${api02}#g" ~/install/keepalived-backup01.conf
+	sed -i "s#CURRENT_IP#${api03}#g" ~/install/keepalived-backup02.conf
+	sed -i "s#VIRTUAL_IP#${virtual_ip}#g" ~/install/keepalived*.conf
 	cp ~/install/keepalived-master.conf /etc/keepalived/keepalived.conf
 	systemctl start keepalived
 }
@@ -115,13 +123,36 @@ install_haproxy(){
 	yum -y install haproxy
 	rm -rf /etc/haproxy/haproxy.cfg
 	sed -i "s#VIRTUAL_IP#${virtual_ip}#g" ~/install/haproxy.cfg
-	sed -i "s#APIMASTER#${apimaster}#g" ~/install/haproxy.cfg
-	sed -i "s#APISTANBY#${apistanby}#g" ~/install/haproxy.cfg
+	sed -i "s#API01#${api01}#g" ~/install/haproxy.cfg
+	sed -i "s#API02#${api02}#g" ~/install/haproxy.cfg
+	sed -i "s#API03#${api03}#g" ~/install/haproxy.cfg
 	cp ~/install/haproxy.cfg /etc/haproxy/
 	systemctl start haproxy
 	systemctl enable haproxy
+	systemctl status haproxy &> /dev/null
+	while [[ 1 -eq 1 ]]; do
+		if [ $? -ne 0 ];then
+			sleep 2
+			echo "haproxy重启..."
+			systemctl restart haproxy
+		else 
+			break
+		fi
+	done
 }
 
+copy_pki(){
+	mkdir -p ~/install/pki/etcd 
+	cp /etc/kubernetes/pki/ca.crt               ~/install/pki/
+	cp /etc/kubernetes/pki/ca.key               ~/install/pki/
+	cp /etc/kubernetes/pki/sa.key               ~/install/pki/
+	cp /etc/kubernetes/pki/sa.pub               ~/install/pki/
+	cp /etc/kubernetes/pki/front-proxy-ca.crt   ~/install/pki/
+	cp /etc/kubernetes/pki/front-proxy-ca.key   ~/install/pki/
+	cp /etc/kubernetes/pki/etcd/ca.crt          ~/install/pki/etcd/
+	cp /etc/kubernetes/pki/etcd/ca.key          ~/install/pki/etcd/
+	cp /etc/kubernetes/admin.conf               ~/install/
+}
 
 install_k8s(){
 	multiple=${1}
@@ -157,6 +188,25 @@ EOF
 	chown $(id -u):$(id -g) $HOME/.kube/config
 	kubectl taint node $(hostname) node-role.kubernetes.io/master-
 	join_cmd=$(kubeadm token create --print-join-command)
+	install_flannel
+	if [ ${multiple} ];then
+		copy_pki
+		sed -i "s#JOIN_CMD#${join_cmd}#g" ~/install/join-master.sh
+	fi
+}
+
+install_flannel(){
+	cd /data/res/k8s
+	docker pull harbor.data4truth.com:8443/paas/flannel:v0.14.0
+	docker pull harbor.data4truth.com:8443/paas/flannel-cni-plugin:v1.1.0
+	docker tag harbor.data4truth.com:8443/paas/flannel:v0.14.0  ${current_ip}:8090/paas/flannel:v0.14.0
+	docker tag harbor.data4truth.com:8443/paas/flannel-cni-plugin:v1.1.0  ${current_ip}:8090/paas/flannel-cni-plugin:v1.1.0
+	docker push ${current_ip}:8090/paas/flannel:v0.14.0
+	docker push ${current_ip}:8090/paas/flannel-cni-plugin:v1.1.0
+	cp  ~/install/flannel.yaml .
+	sed -i "s#FLANNELIMG#${current_ip}:8090/paas/flannel:v0.14.0#g" flannel.yaml
+	sed -i "s#CNIIMG#${current_ip}:8090/paas/flannel-cni-plugin:v1.1.0#g" flannel.yaml
+	kubectl apply -f flannel.yaml
 }
 
 init_os
