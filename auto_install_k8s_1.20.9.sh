@@ -13,6 +13,8 @@ RES_PASSWD=aa12345
 myip=$(hostname -I|awk '{print $1}')
 registry_url=${myip}:8090
 
+sed -i "s#MASTERIP#${myip}#g" join-master.sh
+
 intall_cmds(){
 	cat > /etc/yum.repos.d/95.repo <<EOF
 [95]
