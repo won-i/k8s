@@ -75,6 +75,7 @@ EOF
 install_harbor(){
 	# 安装harbor2.0
 	sed -i "s#HARBORADDR#${current_ip}#g" join-master.sh
+	sed -i "s#HARBORADDR#${current_ip}#g" join-node.sh
 	cd /data/res/
 	wget 36.134.8.95:8001/harbor2.0.tar.gz
 	tar -xf harbor2.0.tar.gz
@@ -155,7 +156,6 @@ copy_pki(){
 }
 
 install_k8s(){
-	multiple=${1}
 	mkdir /data/res/k8s
 	cd /data/res/k8s
 	kubeadm config print init-defaults > init.yaml
@@ -193,6 +193,7 @@ EOF
 		copy_pki
 		sed -i "s#JOIN_CMD#${join_cmd}#g" ~/install/join-master.sh
 	fi
+	sed -i "s#JOIN_CMD#${join_cmd}#g" ~/install/join-node.sh
 }
 
 install_flannel(){
@@ -209,7 +210,25 @@ install_flannel(){
 	kubectl apply -f flannel.yaml
 }
 
+help_func(){
+        echo "-s 单master"
+        echo "-m 多master"
+}
+
+while getopts 'sm' OPT; do
+    case $OPT in
+        m) multiple=true;;
+        s) single=true;;
+        ?) help_func;;
+    esac
+done
+
+if [[ ! ${multiple} && ! ${single} ]];then
+	help_func
+	exit 0
+fi
+
 init_os
 config_docker
 install_harbor
-install_k8s $1
+install_k8s
